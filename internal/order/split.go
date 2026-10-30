@@ -20,6 +20,10 @@ type SubOrder struct {
 	Commission money.Amount
 	// Net is what the platform owes the seller: Gross - Commission.
 	Net money.Amount
+
+	// Refunded and CommissionRefunded are running totals of returns.
+	Refunded           money.Amount
+	CommissionRefunded money.Amount
 }
 
 // Split allocates the order discount across lines in proportion to their

@@ -36,7 +36,8 @@ type Line struct {
 	UnitPrice money.Amount
 	// Paid is what the customer actually paid for the line after its share of
 	// the order discount. Set by Split.
-	Paid money.Amount
+	Paid        money.Amount
+	RefundedQty int64
 }
 
 func (l Line) Subtotal() money.Amount { return l.UnitPrice * money.Amount(l.Qty) }
