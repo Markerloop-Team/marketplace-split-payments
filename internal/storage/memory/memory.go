@@ -15,6 +15,7 @@ import (
 	"github.com/markerloop/marketplace-split-payments/internal/money"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
 	"github.com/markerloop/marketplace-split-payments/internal/outbox"
+	"github.com/markerloop/marketplace-split-payments/internal/payout"
 )
 
 type Store struct {
@@ -34,6 +35,7 @@ type state struct {
 	refs     map[string]bool
 	outbox   []pending
 	nextID   int64
+	payouts  []payout.Payout
 }
 
 type pending struct {
@@ -93,6 +95,7 @@ func (st state) clone() state {
 		refs:     cloneSet(st.refs),
 		outbox:   slices.Clone(st.outbox),
 		nextID:   st.nextID,
+		payouts:  slices.Clone(st.payouts),
 	}
 	for k, v := range st.orders {
 		c.orders[k] = cloneRow(v)
@@ -181,6 +184,18 @@ func (t *tx) PostEntry(_ context.Context, e ledger.Entry) error {
 	t.st.refs[e.Ref] = true
 	e.Postings = slices.Clone(e.Postings)
 	t.st.entries = append(t.st.entries, e)
+	return nil
+}
+
+func (t *tx) Balances(_ context.Context, cur money.Currency) (ledger.Balances, error) {
+	return t.st.balances(cur), nil
+}
+
+// LockPayouts is a no-op: memory transactions are already serialised.
+func (t *tx) LockPayouts(context.Context, money.Currency) error { return nil }
+
+func (t *tx) InsertPayout(_ context.Context, p payout.Payout) error {
+	t.st.payouts = append(t.st.payouts, p)
 	return nil
 }
 

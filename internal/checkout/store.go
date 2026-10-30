@@ -5,8 +5,10 @@ import (
 	"errors"
 
 	"github.com/markerloop/marketplace-split-payments/internal/ledger"
+	"github.com/markerloop/marketplace-split-payments/internal/money"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
 	"github.com/markerloop/marketplace-split-payments/internal/outbox"
+	"github.com/markerloop/marketplace-split-payments/internal/payout"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -29,6 +31,11 @@ type Tx interface {
 	RecordWebhook(ctx context.Context, provider, eventID string) (bool, error)
 
 	PostEntry(ctx context.Context, e ledger.Entry) error
+	Balances(ctx context.Context, cur money.Currency) (ledger.Balances, error)
+
+	// LockPayouts serialises payout runs for a currency.
+	LockPayouts(ctx context.Context, cur money.Currency) error
+	InsertPayout(ctx context.Context, p payout.Payout) error
 
 	Enqueue(ctx context.Context, msgs ...outbox.Message) error
 }

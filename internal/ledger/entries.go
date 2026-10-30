@@ -29,3 +29,16 @@ func Capture(id string, o order.Order, subs []order.SubOrder) Entry {
 		Postings: postings(ps...),
 	}
 }
+
+// Payout books a transfer to a seller's bank account.
+//
+//	Dr seller:<id>        amount
+//	  Cr psp_settlement     amount
+func Payout(id, payoutID string, seller order.SellerID, cur money.Currency, amount money.Amount) Entry {
+	return Entry{
+		ID:       id,
+		Ref:      "payout:" + payoutID,
+		Currency: cur,
+		Postings: postings(Debit(SellerPayable(seller), amount), Credit(Settlement, amount)),
+	}
+}

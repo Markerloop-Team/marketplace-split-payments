@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"github.com/markerloop/marketplace-split-payments/internal/checkout"
+	"github.com/markerloop/marketplace-split-payments/internal/ledger"
 	"github.com/markerloop/marketplace-split-payments/internal/money"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
 	"github.com/markerloop/marketplace-split-payments/internal/outbox"
 	"github.com/markerloop/marketplace-split-payments/internal/payment"
 	"github.com/markerloop/marketplace-split-payments/internal/payment/fake"
+	"github.com/markerloop/marketplace-split-payments/internal/payout"
 	"github.com/markerloop/marketplace-split-payments/internal/storage/memory"
 )
 
@@ -215,5 +217,36 @@ func TestEventsLeaveThroughOutboxOnce(t *testing.T) {
 	}
 	if topics[checkout.TopicOrderPaid] != 1 || topics[checkout.TopicSubOrderCreated] != 2 {
 		t.Fatalf("topics = %v", topics)
+	}
+}
+
+func TestRunPayoutsSettlesSellerBalances(t *testing.T) {
+	f := newFixture()
+	ctx := context.Background()
+	f.capture(t, f.placeOrder(t))
+
+	payouts, err := f.svc.RunPayouts(ctx, money.KZT, payout.Policy{Minimum: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Discount 1 000 over 38 000 leaves shoes 28 237 and books 8 763.
+	// Commission: shoes 10% = 2 824, books 5% = 438.
+	got := map[order.SellerID]money.Amount{}
+	for _, p := range payouts {
+		got[p.SellerID] = p.Amount
+	}
+	if got["shoes"] != 25413 || got["books"] != 8325 || len(got) != 2 {
+		t.Fatalf("payouts = %v", got)
+	}
+
+	b := f.store.Balances(money.KZT)
+	if b[ledger.CommissionRevenue] != -3262 || b[ledger.Settlement] != 3262 {
+		t.Fatalf("after payouts only commission should remain: %v", b)
+	}
+	f.assertBookBalanced(t)
+
+	again, err := f.svc.RunPayouts(ctx, money.KZT, payout.Policy{Minimum: 1000})
+	if err != nil || len(again) != 0 {
+		t.Fatalf("second run paid %v (err %v)", again, err)
 	}
 }
