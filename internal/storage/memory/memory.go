@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/markerloop/marketplace-split-payments/internal/checkout"
 	"github.com/markerloop/marketplace-split-payments/internal/ledger"
 	"github.com/markerloop/marketplace-split-payments/internal/money"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
+	"github.com/markerloop/marketplace-split-payments/internal/outbox"
 )
 
 type Store struct {
@@ -30,6 +32,13 @@ type state struct {
 	webhooks map[string]bool
 	entries  []ledger.Entry
 	refs     map[string]bool
+	outbox   []pending
+	nextID   int64
+}
+
+type pending struct {
+	msg       outbox.Message
+	published bool
 }
 
 func New() *Store {
@@ -82,6 +91,8 @@ func (st state) clone() state {
 		webhooks: cloneSet(st.webhooks),
 		entries:  slices.Clone(st.entries),
 		refs:     cloneSet(st.refs),
+		outbox:   slices.Clone(st.outbox),
+		nextID:   st.nextID,
 	}
 	for k, v := range st.orders {
 		c.orders[k] = cloneRow(v)
@@ -171,4 +182,42 @@ func (t *tx) PostEntry(_ context.Context, e ledger.Entry) error {
 	e.Postings = slices.Clone(e.Postings)
 	t.st.entries = append(t.st.entries, e)
 	return nil
+}
+
+func (t *tx) Enqueue(_ context.Context, msgs ...outbox.Message) error {
+	for _, m := range msgs {
+		t.st.nextID++
+		m.ID = t.st.nextID
+		m.CreatedAt = time.Now()
+		t.st.outbox = append(t.st.outbox, pending{msg: m})
+	}
+	return nil
+}
+
+// Claim implements outbox.Source.
+func (s *Store) Claim(_ context.Context, limit int, fn func([]outbox.Message) error) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var idx []int
+	var batch []outbox.Message
+	for i, p := range s.st.outbox {
+		if len(batch) == limit {
+			break
+		}
+		if !p.published {
+			idx = append(idx, i)
+			batch = append(batch, p.msg)
+		}
+	}
+	if len(batch) == 0 {
+		return 0, nil
+	}
+	if err := fn(batch); err != nil {
+		return 0, err
+	}
+	for _, i := range idx {
+		s.st.outbox[i].published = true
+	}
+	return len(batch), nil
 }

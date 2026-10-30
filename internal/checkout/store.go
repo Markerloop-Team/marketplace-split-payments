@@ -6,6 +6,7 @@ import (
 
 	"github.com/markerloop/marketplace-split-payments/internal/ledger"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
+	"github.com/markerloop/marketplace-split-payments/internal/outbox"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -28,4 +29,6 @@ type Tx interface {
 	RecordWebhook(ctx context.Context, provider, eventID string) (bool, error)
 
 	PostEntry(ctx context.Context, e ledger.Entry) error
+
+	Enqueue(ctx context.Context, msgs ...outbox.Message) error
 }

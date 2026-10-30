@@ -3,12 +3,15 @@ package checkout_test
 import (
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"sync"
 	"testing"
 
 	"github.com/markerloop/marketplace-split-payments/internal/checkout"
 	"github.com/markerloop/marketplace-split-payments/internal/money"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
+	"github.com/markerloop/marketplace-split-payments/internal/outbox"
 	"github.com/markerloop/marketplace-split-payments/internal/payment"
 	"github.com/markerloop/marketplace-split-payments/internal/payment/fake"
 	"github.com/markerloop/marketplace-split-payments/internal/storage/memory"
@@ -174,5 +177,43 @@ func TestDeclineThenCaptureKeepsOrderFailed(t *testing.T) {
 	}
 	if len(f.store.Entries()) != 0 {
 		t.Fatal("late capture on a failed order was booked")
+	}
+}
+
+func TestEventsLeaveThroughOutboxOnce(t *testing.T) {
+	f := newFixture()
+	ctx := context.Background()
+	co := f.placeOrder(t)
+	h, body, _ := f.provider.Capture(co.Payment.ID)
+	for range 3 {
+		if err := f.svc.HandleWebhook(ctx, h, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pub := &outbox.MemoryPublisher{Err: errors.New("broker down")}
+	relay := outbox.NewRelay(f.store, pub, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := relay.Drain(ctx); err == nil {
+		t.Fatal("expected publish error")
+	}
+
+	pub.Err = nil
+	n, err := relay.Drain(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 3 {
+		t.Fatalf("published %d messages, want 3 (order paid + 2 sub-orders)", n)
+	}
+	if n, _ := relay.Drain(ctx); n != 0 {
+		t.Fatalf("second drain republished %d messages", n)
+	}
+
+	topics := map[string]int{}
+	for _, m := range pub.Messages() {
+		topics[m.Topic]++
+	}
+	if topics[checkout.TopicOrderPaid] != 1 || topics[checkout.TopicSubOrderCreated] != 2 {
+		t.Fatalf("topics = %v", topics)
 	}
 }

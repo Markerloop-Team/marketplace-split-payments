@@ -7,6 +7,7 @@ import (
 
 	"github.com/markerloop/marketplace-split-payments/internal/ledger"
 	"github.com/markerloop/marketplace-split-payments/internal/order"
+	"github.com/markerloop/marketplace-split-payments/internal/outbox"
 	"github.com/markerloop/marketplace-split-payments/internal/payment"
 )
 
@@ -52,9 +53,27 @@ func (s *Service) HandleWebhook(ctx context.Context, h http.Header, body []byte)
 			if err := tx.UpdateOrderStatus(ctx, o.ID, order.StatusPaid); err != nil {
 				return err
 			}
-			return s.postEntry(ctx, tx, ledger.Capture(s.newID(), o, subs))
+			if err := s.postEntry(ctx, tx, ledger.Capture(s.newID(), o, subs)); err != nil {
+				return err
+			}
+			paid, err := orderEvent(TopicOrderPaid, o)
+			if err != nil {
+				return err
+			}
+			perSeller, err := subOrderEvents(o, subs)
+			if err != nil {
+				return err
+			}
+			return tx.Enqueue(ctx, append([]outbox.Message{paid}, perSeller...)...)
 		case payment.EventFailed:
-			return tx.UpdateOrderStatus(ctx, o.ID, order.StatusPaymentFailed)
+			if err := tx.UpdateOrderStatus(ctx, o.ID, order.StatusPaymentFailed); err != nil {
+				return err
+			}
+			failed, err := orderEvent(TopicOrderPaymentFailed, o)
+			if err != nil {
+				return err
+			}
+			return tx.Enqueue(ctx, failed)
 		default:
 			return nil
 		}
