@@ -120,6 +120,7 @@ func TestQuoteRefundRejects(t *testing.T) {
 		{"zero qty", []ReturnLine{{"b", 0}}, ErrInvalidReturn},
 		{"duplicate line", []ReturnLine{{"b", 1}, {"b", 1}}, ErrInvalidReturn},
 		{"unknown line", []ReturnLine{{"zzz", 1}}, ErrUnknownLine},
+		{"unknown among known", []ReturnLine{{"b", 1}, {"y", 1}, {"x", 1}}, ErrUnknownLine},
 		{"empty", nil, ErrNothingToRefund},
 	}
 	for _, tt := range tests {

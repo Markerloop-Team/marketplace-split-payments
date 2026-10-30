@@ -3,6 +3,8 @@ package order
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/markerloop/marketplace-split-payments/internal/money"
 )
@@ -85,8 +87,13 @@ func QuoteRefund(subs []SubOrder, returns []ReturnLine) ([]RefundPart, error) {
 		parts = append(parts, part)
 	}
 
-	for id := range want {
-		return nil, fmt.Errorf("%w: %s", ErrUnknownLine, id)
+	if len(want) > 0 {
+		unknown := make([]string, 0, len(want))
+		for id := range want {
+			unknown = append(unknown, id)
+		}
+		sort.Strings(unknown)
+		return nil, fmt.Errorf("%w: %s", ErrUnknownLine, strings.Join(unknown, ", "))
 	}
 	if total == 0 {
 		return nil, ErrNothingToRefund
