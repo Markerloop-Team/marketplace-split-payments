@@ -121,3 +121,39 @@ func randomOrder(rng *rand.Rand) (order.Order, order.Rates) {
 	rates := order.FlatRates{Default: money.BPS(rng.Intn(3001))}
 	return o, rates
 }
+
+func TestCaptureThenFullRefundZeroesEveryAccount(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	for i := 0; i < 500; i++ {
+		o, rates := randomOrder(rng)
+		subs, err := order.Split(o, rates)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if o.Total() == 0 {
+			continue
+		}
+		var all []order.ReturnLine
+		for _, l := range o.Lines {
+			all = append(all, order.ReturnLine{LineID: l.ID, Qty: l.Qty})
+		}
+		parts, err := order.QuoteRefund(subs, all)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := order.Refund{ID: "r", Amount: o.Total(), Parts: parts}
+
+		b := Balances{}
+		for _, e := range []Entry{Capture("c", o, subs), Refund("r", r, o.Currency)} {
+			if err := e.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			b.Apply(e)
+		}
+		for acc, v := range b {
+			if v != 0 {
+				t.Fatalf("order %d: %s = %d after full refund", i, acc, v)
+			}
+		}
+	}
+}

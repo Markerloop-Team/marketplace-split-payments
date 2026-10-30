@@ -30,6 +30,28 @@ func Capture(id string, o order.Order, subs []order.SubOrder) Entry {
 	}
 }
 
+// Refund reverses the captured split for returned items. Each seller gives
+// back their net, the platform gives back its commission.
+//
+//	Dr seller:<id>        net         (per part)
+//	Dr revenue:commission commission
+//	  Cr psp_settlement     refund amount
+func Refund(id string, r order.Refund, cur money.Currency) Entry {
+	var commission money.Amount
+	ps := make([]Posting, 0, len(r.Parts)+2)
+	for _, p := range r.Parts {
+		ps = append(ps, Debit(SellerPayable(p.SellerID), p.Net))
+		commission += p.Commission
+	}
+	ps = append(ps, Debit(CommissionRevenue, commission), Credit(Settlement, r.Amount))
+	return Entry{
+		ID:       id,
+		Ref:      "refund:" + r.ID,
+		Currency: cur,
+		Postings: postings(ps...),
+	}
+}
+
 // Payout books a transfer to a seller's bank account.
 //
 //	Dr seller:<id>        amount
