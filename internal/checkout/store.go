@@ -26,6 +26,11 @@ type Tx interface {
 	LockOrder(ctx context.Context, id string) error
 	LoadOrder(ctx context.Context, id string) (order.Order, []order.SubOrder, error)
 	UpdateOrderStatus(ctx context.Context, id string, s order.Status) error
+	// UpdateSubOrders persists refund counters on sub-orders and lines.
+	UpdateSubOrders(ctx context.Context, subs []order.SubOrder) error
+
+	FindRefund(ctx context.Context, orderID, idempotencyKey string) (order.Refund, bool, error)
+	InsertRefund(ctx context.Context, r order.Refund) error
 
 	// RecordWebhook stores a provider event ID and reports whether it is new.
 	RecordWebhook(ctx context.Context, provider, eventID string) (bool, error)

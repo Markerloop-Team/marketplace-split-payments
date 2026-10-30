@@ -36,6 +36,7 @@ type state struct {
 	outbox   []pending
 	nextID   int64
 	payouts  []payout.Payout
+	refunds  map[string]order.Refund
 }
 
 type pending struct {
@@ -48,6 +49,7 @@ func New() *Store {
 		orders:   map[string]orderRow{},
 		webhooks: map[string]bool{},
 		refs:     map[string]bool{},
+		refunds:  map[string]order.Refund{},
 	}}
 }
 
@@ -96,6 +98,10 @@ func (st state) clone() state {
 		outbox:   slices.Clone(st.outbox),
 		nextID:   st.nextID,
 		payouts:  slices.Clone(st.payouts),
+		refunds:  make(map[string]order.Refund, len(st.refunds)),
+	}
+	for k, v := range st.refunds {
+		c.refunds[k] = v
 	}
 	for k, v := range st.orders {
 		c.orders[k] = cloneRow(v)
@@ -165,6 +171,34 @@ func (t *tx) UpdateOrderStatus(_ context.Context, id string, s order.Status) err
 	}
 	r.order.Status = s
 	t.st.orders[id] = r
+	return nil
+}
+
+func (t *tx) UpdateSubOrders(_ context.Context, subs []order.SubOrder) error {
+	if len(subs) == 0 {
+		return nil
+	}
+	r, ok := t.st.orders[subs[0].OrderID]
+	if !ok {
+		return checkout.ErrNotFound
+	}
+	r.subs = subs
+	t.st.orders[r.order.ID] = cloneRow(r)
+	return nil
+}
+
+func (t *tx) FindRefund(_ context.Context, orderID, key string) (order.Refund, bool, error) {
+	r, ok := t.st.refunds[orderID+"/"+key]
+	return r, ok, nil
+}
+
+func (t *tx) InsertRefund(_ context.Context, r order.Refund) error {
+	k := r.OrderID + "/" + r.IdempotencyKey
+	if _, ok := t.st.refunds[k]; ok {
+		return fmt.Errorf("memory: refund %s exists", k)
+	}
+	r.Parts = slices.Clone(r.Parts)
+	t.st.refunds[k] = r
 	return nil
 }
 
